@@ -51,6 +51,13 @@ summary{cursor:pointer}
 .people a{display:flex;align-items:center;gap:6px;text-decoration:none;color:var(--ink);font-size:14px}
 .people img{width:28px;height:28px;border-radius:50%}
 .acts{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+.ct{color:var(--ink);font-weight:600;text-decoration:none}
+.ct:hover{color:var(--acc)}
+.cd{margin-top:8px;padding:8px 10px;background:var(--bg);border-radius:4px}
+.cd pre{white-space:pre-wrap;margin:0 0 8px;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace}
+.file{font-size:13px;padding:2px 0;word-break:break-all}
+.bs{font-size:13px;color:var(--mute)}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -96,7 +103,8 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const fmt=d=>d?new Date(d).toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'}):'—';
 const hue=s=>[...String(s||'x')].reduce((a,c)=>(a*31+c.charCodeAt(0))%360,7);
 const state={repos:[],owners:[],owner:'*'};
-let token='',cur=null;
+let token='',cur=null,histBranch='';
+const enc=s=>s.split('/').map(encodeURIComponent).join('/');
 try{token=localStorage.getItem('gh_token')||'';$('#user').value=localStorage.getItem('gh_user')||'';$('#tok').value=token}catch(e){}
 
 function msg(t,err){const m=$('#msg');m.textContent=t||'';m.className=err?'err':''}
@@ -160,7 +168,8 @@ function renderList(){
 
 function route(){
   const h=location.hash.slice(2).split('/');
-  if(h.length===2&&h[0]&&h[1]){showDetail(h[0],h[1])}
+  if(h.length===3&&h[2]==='commits'&&h[0]&&h[1]){showHistory(h[0],h[1])}
+  else if(h.length===2&&h[0]&&h[1]){showDetail(h[0],h[1])}
   else{$('#detail').hidden=true;if(state.repos.length){$('#list').hidden=false;renderList()}}
 }
 window.addEventListener('hashchange',route);
@@ -169,11 +178,12 @@ async function showDetail(o,n){
   $('#list').hidden=true;const d=$('#detail');d.hidden=false;
   d.innerHTML='<p class="sub">Cargando ficha…</p>';
   const base=`/repos/${o}/${n}`;
-  const [repo,langs,commits,contribs,rel]=await Promise.allSettled([
-    gh(base),gh(base+'/languages'),gh(base+'/commits?per_page=100'),gh(base+'/contributors?per_page=12'),gh(base+'/releases/latest')]);
+  const [repo,langs,commits,contribs,rel,brs]=await Promise.allSettled([
+    gh(base),gh(base+'/languages'),gh(base+'/commits?per_page=100'),gh(base+'/contributors?per_page=12'),gh(base+'/releases/latest'),all(base+'/branches')]);
   if(repo.status!=='fulfilled'){d.innerHTML=`<a class="back" href="#/">← Volver al listado</a><p class="err" style="color:#c0392b">${esc(repo.reason.message)}</p>`;return}
   const r=repo.value,L=langs.value||{},C=Array.isArray(commits.value)?commits.value:[],P=Array.isArray(contribs.value)?contribs.value:[],R=rel.value;
-  cur={r,L,C,P,R};
+  const B=Array.isArray(brs.value)?brs.value:[];histBranch='';
+  cur={r,L,C,P,R,B};
   const tot=Object.values(L).reduce((a,b)=>a+b,0);
   const lk=Object.entries(L).sort((a,b)=>b[1]-a[1]);
   const months={};C.forEach(c=>{const k=(c.commit.author?.date||'').slice(0,7);if(k)months[k]=(months[k]||0)+1});
@@ -198,17 +208,79 @@ async function showDetail(o,n){
   <h2>Commits por mes <small style="color:var(--mute);font-weight:400">(últimos ${C.length} commits)</small></h2>
   ${mk.length?`<div class="chart">${mk.map(k=>`<div class="col" title="${k}: ${months[k]}">${months[k]}<i style="height:${months[k]/mx*80}%"></i>${k.slice(2)}</div>`).join('')}</div>`:'<p class="sub">Sin commits disponibles.</p>'}
   <h2>Últimos commits</h2>
+  <p><a href="#/${esc(o)}/${esc(n)}/commits"><button>Ver historial detallado</button></a></p>
   ${C.slice(0,10).map(c=>`<div class="commit"><a href="${esc(c.html_url)}" target="_blank" rel="noopener">${esc(c.commit.message.split('\n')[0])}</a><br><small>${esc(c.commit.author?.name)} · ${fmt(c.commit.author?.date)} · ${c.sha.slice(0,7)}</small></div>`).join('')||'<p class="sub">Sin commits.</p>'}
+  <h2>Ramas <small style="color:var(--mute);font-weight:400">(${B.length})</small></h2>
+  ${B.map(b=>`<div class="commit"><b class="mono">${esc(b.name)}</b>${b.name===r.default_branch?'<span class="tag">principal</span>':''}${b.protected?'<span class="tag">protegida</span>':''} <small>${b.commit.sha.slice(0,7)}</small> <span class="bs" data-b="${esc(b.name)}"></span><br><a href="#/${esc(o)}/${esc(n)}/commits" data-hb="${esc(b.name)}">Ver commits</a> · <a href="${esc(r.html_url)}/tree/${esc(enc(b.name))}" target="_blank" rel="noopener">Abrir en GitHub</a></div>`).join('')||'<p class="sub">Sin datos de ramas.</p>'}
+  ${B.length>1?'<div class="acts"><button id="cmp">Calcular adelante/atrás respecto a la principal</button></div>':''}
   <h2>Contribuidores</h2>
   <div class="people">${P.map(p=>`<a href="${esc(p.html_url)}" target="_blank" rel="noopener"><img src="${esc(p.avatar_url)}" alt="">${esc(p.login)} (${p.contributions})</a>`).join('')||'<span class="sub">Sin datos.</span>'}</div>
   <h2>Última release</h2>
   ${R&&R.tag_name?`<p><a href="${esc(R.html_url)}" target="_blank" rel="noopener">${esc(R.name||R.tag_name)}</a> · ${fmt(R.published_at)}</p>`:'<p class="sub">Este repositorio no tiene releases.</p>'}`;
   $('#md').onclick=downloadMd;
+  document.querySelectorAll('[data-hb]').forEach(a=>a.onclick=()=>{histBranch=a.dataset.hb});
+  if($('#cmp'))$('#cmp').onclick=compareBranches;
   window.scrollTo(0,0);
 }
 
+async function compareBranches(){
+  const {r,B}=cur,btn=$('#cmp');btn.disabled=true;btn.textContent='Calculando…';
+  const list=B.filter(b=>b.name!==r.default_branch).slice(0,15);
+  for(const b of list){
+    const s=document.querySelector(`.bs[data-b="${CSS.escape(b.name)}"]`);
+    try{const c=await gh(`/repos/${r.full_name}/compare/${enc(r.default_branch)}...${enc(b.name)}`);
+      s.textContent=`↑${c.ahead_by} adelante · ↓${c.behind_by} atrás`}
+    catch(e){s.textContent='sin datos';if(/límite/.test(e.message)){msg(e.message,1);break}}
+  }
+  btn.textContent=B.length-1>15?'Calculadas las primeras 15 ramas':'Listo';
+}
+
+async function showHistory(o,n){
+  $('#list').hidden=true;const d=$('#detail');d.hidden=false;
+  d.innerHTML='<p class="sub">Cargando historial…</p>';
+  let r,B;
+  try{[r,B]=await Promise.all([gh(`/repos/${o}/${n}`),all(`/repos/${o}/${n}/branches`)])}
+  catch(e){d.innerHTML=`<a class="back" href="#/">← Volver al listado</a><p style="color:#c0392b">${esc(e.message)}</p>`;return}
+  const sel=B.some(b=>b.name===histBranch)?histBranch:r.default_branch;
+  d.innerHTML=`<a class="back" href="#/${esc(o)}/${esc(n)}">← Volver a la ficha</a>
+  <h1 class="mono" style="font-size:22px">${esc(r.full_name)}</h1>
+  <p class="sub">Historial de commits. Toca un commit para ver archivos y cambios.</p>
+  <div class="bar"><select id="hb">${B.map(b=>`<option ${b.name===sel?'selected':''}>${esc(b.name)}</option>`).join('')}</select>
+  <input id="hq" placeholder="Filtrar por mensaje o autor"><input id="hs" type="date" title="Desde"></div>
+  <div id="hl"></div><div class="acts"><button id="hmore" hidden>Cargar más</button></div><p id="hinfo" class="sub"></p>`;
+  let page=1,items=[];
+  const draw=()=>{
+    const q=$('#hq').value.toLowerCase();
+    const v=items.filter(c=>(c.commit.message+' '+(c.commit.author?.name||'')).toLowerCase().includes(q));
+    $('#hl').innerHTML=v.map(c=>`<div class="commit"><a href="#" class="ct" data-s="${c.sha}">${esc(c.commit.message.split('\n')[0])}</a>${c.parents.length>1?'<span class="tag">merge</span>':''}<br><small>${esc(c.commit.author?.name)} · ${fmt(c.commit.author?.date)} · ${c.sha.slice(0,7)}</small><div class="cd" id="d-${c.sha}" hidden></div></div>`).join('')||'<p class="sub">Sin resultados.</p>';
+    document.querySelectorAll('.ct').forEach(a=>a.onclick=e=>{e.preventDefault();toggle(a.dataset.s)});
+  };
+  const toggle=async s=>{
+    const el=$('#d-'+s);if(!el.hidden){el.hidden=true;return}
+    el.hidden=false;if(el.dataset.ok)return;el.textContent='Cargando…';
+    try{
+      const c=await gh(`/repos/${o}/${n}/commits/${s}`),f=c.files||[];
+      el.innerHTML=`<pre>${esc(c.commit.message)}</pre><p><strong>${f.length} archivos</strong> · <span style="color:#1a7f37">+${c.stats?.additions??0}</span> <span style="color:#c0392b">−${c.stats?.deletions??0}</span> · <a href="${esc(c.html_url)}" target="_blank" rel="noopener">Ver en GitHub</a></p>`+
+        f.map(x=>`<div class="file"><span class="tag" style="margin:0 6px 0 0">${esc(x.status)}</span>${esc(x.filename)} <small>+${x.additions} −${x.deletions}</small></div>`).join('');
+      el.dataset.ok=1;
+    }catch(e){el.textContent=e.message}
+  };
+  const load=async reset=>{
+    if(reset){page=1;items=[]}
+    const sd=$('#hs').value;$('#hinfo').textContent='Cargando…';
+    try{
+      const x=await gh(`/repos/${o}/${n}/commits?sha=${encodeURIComponent($('#hb').value)}&per_page=30&page=${page}${sd?'&since='+sd+'T00:00:00Z':''}`);
+      items=items.concat(x);$('#hmore').hidden=x.length<30;page++;
+      $('#hinfo').textContent=`${items.length} commits cargados`;draw();
+    }catch(e){$('#hinfo').textContent=e.message}
+  };
+  $('#hb').onchange=()=>load(true);$('#hs').onchange=()=>load(true);
+  $('#hq').oninput=draw;$('#hmore').onclick=()=>load(false);
+  load(true);window.scrollTo(0,0);
+}
+
 function downloadMd(){
-  const {r,L,C,P,R}=cur,tot=Object.values(L).reduce((a,b)=>a+b,0);
+  const {r,L,C,P,R,B}=cur,tot=Object.values(L).reduce((a,b)=>a+b,0);
   const md=[`# ${r.full_name}`,'',r.description||'_Sin descripción_','',
   `- Enlace: ${r.html_url}`,r.homepage?`- Web: ${r.homepage}`:'',
   `- Estrellas: ${r.stargazers_count} · Forks: ${r.forks_count} · Issues abiertas: ${r.open_issues_count}`,
@@ -217,7 +289,7 @@ function downloadMd(){
   (r.topics||[]).length?`- Temas: ${r.topics.join(', ')}`:'','',
   '## Lenguajes',...Object.entries(L).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`- ${k}: ${(v/tot*100).toFixed(1)}%`),'',
   '## Últimos commits',...C.slice(0,10).map(c=>`- ${fmt(c.commit.author?.date)} · ${c.commit.message.split('\n')[0]} (${c.sha.slice(0,7)}, ${c.commit.author?.name})`),'',
-  '## Contribuidores',...P.map(p=>`- ${p.login} (${p.contributions})`),'',
+  '## Ramas',...B.map(b=>`- ${b.name}${b.name===r.default_branch?' (principal)':''}${b.protected?' (protegida)':''}`),'','## Contribuidores',...P.map(p=>`- ${p.login} (${p.contributions})`),'',
   '## Última release',R&&R.tag_name?`- ${R.name||R.tag_name} · ${fmt(R.published_at)}`:'- Sin releases'].filter(x=>x!==undefined).join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([md],{type:'text/markdown'}));
   a.download=r.name+'-ficha.md';a.click();URL.revokeObjectURL(a.href);

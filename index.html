@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fichas de repositorios</title>
+<style>
+:root{--bg:#eef1f4;--panel:#fff;--ink:#14202b;--mute:#5d6b78;--line:#d5dce3;--acc:#2446d6;--accbg:#e4e9fb}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1419;--panel:#171e26;--ink:#e6ebf0;--mute:#8d9aa7;--line:#2a343f;--acc:#7e97ff;--accbg:#1c2547}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:26px;letter-spacing:-.02em;margin:0 0 4px}
+h2{font-size:15px;margin:26px 0 8px}
+a{color:var(--acc)}
+.sub{color:var(--mute);margin:0 0 16px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+input,select,button{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+button{cursor:pointer}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+#user{flex:1;min-width:160px}
+#q{flex:1;min-width:140px}
+details{margin-bottom:12px;color:var(--mute)}
+summary{cursor:pointer}
+#msg{min-height:22px;color:var(--mute);margin:6px 0}
+#msg.err{color:#c0392b}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.chip{border-radius:99px;padding:4px 12px;font-size:14px}
+.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.row{display:block;background:var(--panel);border:1px solid var(--line);border-left:6px solid hsl(var(--h) 60% 50%);border-radius:4px;padding:12px 14px;margin-bottom:8px;text-decoration:none;color:inherit}
+.row:hover{border-color:var(--acc);border-left-color:hsl(var(--h) 60% 50%)}
+.row b{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;color:var(--acc)}
+.row p{margin:4px 0 6px;color:var(--mute)}
+.meta{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;color:var(--mute)}
+.tag{background:var(--accbg);color:var(--acc);border-radius:4px;padding:0 6px;font-size:12px;margin-left:6px}
+.back{display:inline-block;margin-bottom:12px}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:8px 10px}
+.stat span{display:block;font-size:12px;color:var(--mute)}
+.stat strong{font-size:17px}
+.langs{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:8px 0}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
+.chart{display:flex;align-items:flex-end;gap:4px;height:110px;overflow-x:auto;padding-top:6px}
+.col{flex:1;min-width:26px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;font-size:11px;color:var(--mute)}
+.col i{display:block;width:100%;background:var(--acc);border-radius:3px 3px 0 0;min-height:2px}
+.commit{padding:8px 0;border-bottom:1px solid var(--line)}
+.commit small{color:var(--mute)}
+.people{display:flex;flex-wrap:wrap;gap:10px}
+.people a{display:flex;align-items:center;gap:6px;text-decoration:none;color:var(--ink);font-size:14px}
+.people img{width:28px;height:28px;border-radius:50%}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+<h1>Fichas de repositorios</h1>
+<p class="sub">Repos públicos de tu cuenta y de tus organizaciones, con datos de la API de GitHub.</p>
+
+<div class="bar">
+  <input id="user" placeholder="Usuario de GitHub" autocomplete="off">
+  <button class="pri" id="go">Cargar repos</button>
+</div>
+<details><summary>Token (opcional)</summary>
+  <div class="bar" style="margin-top:8px">
+    <input id="tok" type="password" placeholder="Personal access token (sin permisos especiales)">
+    <button id="savetok">Guardar</button>
+  </div>
+  <small>Sin token, GitHub limita a 60 peticiones por hora. El token se guarda solo en este navegador.</small>
+</details>
+<div id="msg"></div>
+
+<section id="list" hidden>
+  <div class="chips" id="chips"></div>
+  <div class="bar">
+    <input id="q" placeholder="Buscar por nombre, descripción o tema">
+    <select id="sort">
+      <option value="pushed">Última actividad</option>
+      <option value="stars">Más estrellas</option>
+      <option value="created">Más recientes</option>
+      <option value="name">Nombre</option>
+    </select>
+    <label style="align-self:center"><input type="checkbox" id="nofork"> Ocultar forks</label>
+  </div>
+  <div id="rows"></div>
+</section>
+
+<section id="detail" hidden></section>
+</main>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=d=>d?new Date(d).toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'}):'—';
+const hue=s=>[...String(s||'x')].reduce((a,c)=>(a*31+c.charCodeAt(0))%360,7);
+const state={repos:[],owners:[],owner:'*'};
+let token='',cur=null;
+try{token=localStorage.getItem('gh_token')||'';$('#user').value=localStorage.getItem('gh_user')||'';$('#tok').value=token}catch(e){}
+
+function msg(t,err){const m=$('#msg');m.textContent=t||'';m.className=err?'err':''}
+
+async function gh(path){
+  const r=await fetch('https://api.github.com'+path,{headers:{Accept:'application/vnd.github+json',...(token?{Authorization:'Bearer '+token}:{})}});
+  if(r.status===403||r.status===429)throw new Error('Has alcanzado el límite de la API de GitHub. Añade un token o espera un rato.');
+  if(r.status===404)throw new Error('No se encontró el usuario o el repositorio.');
+  if(!r.ok)throw new Error('GitHub respondió con el error '+r.status+'.');
+  return r.json();
+}
+async function all(path){
+  let out=[];
+  for(let p=1;p<=5;p++){
+    const d=await gh(path+(path.includes('?')?'&':'?')+'per_page=100&page='+p);
+    out=out.concat(d);if(d.length<100)break;
+  }
+  return out;
+}
+
+$('#savetok').onclick=()=>{token=$('#tok').value.trim();try{localStorage.setItem('gh_token',token)}catch(e){}msg(token?'Token guardado.':'Token eliminado.')};
+$('#go').onclick=start;
+$('#user').addEventListener('keydown',e=>{if(e.key==='Enter')start()});
+
+async function start(){
+  const u=$('#user').value.trim();if(!u)return;
+  try{localStorage.setItem('gh_user',u)}catch(e){}
+  msg('Cargando repositorios…');
+  try{
+    const [own,orgs]=await Promise.all([all(`/users/${u}/repos?type=owner&sort=pushed`),gh(`/users/${u}/orgs`)]);
+    let repos=own;
+    for(const o of orgs){try{repos=repos.concat(await all(`/orgs/${o.login}/repos?type=public`))}catch(e){}}
+    state.repos=repos;state.owners=[u,...orgs.map(o=>o.login)];state.owner='*';
+    msg(`${repos.length} repositorios públicos en ${state.owners.length} cuenta${state.owners.length>1?'s':''}.`);
+    location.hash='';route();
+  }catch(e){msg(e.message,1)}
+}
+
+function renderChips(){
+  const n=o=>state.repos.filter(r=>r.owner.login===o).length;
+  $('#chips').innerHTML=`<button class="chip ${state.owner==='*'?'on':''}" data-o="*">Todos (${state.repos.length})</button>`+
+    state.owners.map(o=>`<button class="chip ${state.owner===o?'on':''}" data-o="${esc(o)}">${esc(o)} (${n(o)})</button>`).join('');
+  document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{state.owner=b.dataset.o;renderList()});
+}
+
+function renderList(){
+  renderChips();
+  const q=$('#q').value.toLowerCase(),nf=$('#nofork').checked,s=$('#sort').value;
+  const r=state.repos.filter(x=>(state.owner==='*'||x.owner.login===state.owner)&&(!nf||!x.fork)&&
+    (x.name+' '+(x.description||'')+' '+(x.topics||[]).join(' ')).toLowerCase().includes(q));
+  r.sort((a,b)=>s==='stars'?b.stargazers_count-a.stargazers_count:s==='name'?a.name.localeCompare(b.name):
+    s==='created'?new Date(b.created_at)-new Date(a.created_at):new Date(b.pushed_at)-new Date(a.pushed_at));
+  $('#rows').innerHTML=r.length?r.map(x=>`
+    <a class="row" style="--h:${hue(x.language)}" href="#/${esc(x.owner.login)}/${esc(x.name)}">
+      <b>${esc(x.owner.login)}/${esc(x.name)}</b>${x.fork?'<span class="tag">fork</span>':''}${x.archived?'<span class="tag">archivado</span>':''}
+      <p>${esc(x.description||'Sin descripción')}</p>
+      <div class="meta"><span>${esc(x.language||'Sin lenguaje')}</span><span>★ ${x.stargazers_count}</span><span>Forks ${x.forks_count}</span><span>Actividad: ${fmt(x.pushed_at)}</span></div>
+    </a>`).join(''):'<p class="sub">Ningún repositorio coincide con el filtro.</p>';
+}
+['q','sort','nofork'].forEach(id=>$('#'+id).addEventListener('input',renderList));
+
+function route(){
+  const h=location.hash.slice(2).split('/');
+  if(h.length===2&&h[0]&&h[1]){showDetail(h[0],h[1])}
+  else{$('#detail').hidden=true;if(state.repos.length){$('#list').hidden=false;renderList()}}
+}
+window.addEventListener('hashchange',route);
+
+async function showDetail(o,n){
+  $('#list').hidden=true;const d=$('#detail');d.hidden=false;
+  d.innerHTML='<p class="sub">Cargando ficha…</p>';
+  const base=`/repos/${o}/${n}`;
+  const [repo,langs,commits,contribs,rel]=await Promise.allSettled([
+    gh(base),gh(base+'/languages'),gh(base+'/commits?per_page=100'),gh(base+'/contributors?per_page=12'),gh(base+'/releases/latest')]);
+  if(repo.status!=='fulfilled'){d.innerHTML=`<a class="back" href="#/">← Volver al listado</a><p class="err" style="color:#c0392b">${esc(repo.reason.message)}</p>`;return}
+  const r=repo.value,L=langs.value||{},C=Array.isArray(commits.value)?commits.value:[],P=Array.isArray(contribs.value)?contribs.value:[],R=rel.value;
+  cur={r,L,C,P,R};
+  const tot=Object.values(L).reduce((a,b)=>a+b,0);
+  const lk=Object.entries(L).sort((a,b)=>b[1]-a[1]);
+  const months={};C.forEach(c=>{const k=(c.commit.author?.date||'').slice(0,7);if(k)months[k]=(months[k]||0)+1});
+  const mk=Object.keys(months).sort().slice(-12),mx=Math.max(1,...mk.map(k=>months[k]));
+  const st=(a,b)=>`<div class="stat"><span>${a}</span><strong>${b}</strong></div>`;
+  d.innerHTML=`
+  <a class="back" href="#/">← Volver al listado</a>
+  <h1 style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:22px">${esc(r.full_name)}</h1>
+  <p class="sub">${esc(r.description||'Sin descripción')}</p>
+  <div class="acts"><a href="${esc(r.html_url)}" target="_blank" rel="noopener"><button>Abrir en GitHub</button></a>
+  ${r.homepage?`<a href="${esc(r.homepage)}" target="_blank" rel="noopener"><button>Web del proyecto</button></a>`:''}
+  <button id="md" class="pri">Descargar ficha .md</button></div>
+  <div class="stats">
+    ${st('Estrellas',r.stargazers_count)}${st('Forks',r.forks_count)}${st('Seguidores',r.subscribers_count??'—')}${st('Issues abiertas',r.open_issues_count)}
+    ${st('Licencia',esc(r.license?.spdx_id||'Ninguna'))}${st('Rama principal',esc(r.default_branch))}${st('Tamaño',(r.size/1024).toFixed(1)+' MB')}
+    ${st('Creado',fmt(r.created_at))}${st('Último push',fmt(r.pushed_at))}${st('Visibilidad',r.archived?'Archivado':r.fork?'Fork':'Público')}
+  </div>
+  ${(r.topics||[]).length?`<h2>Temas</h2><div>${r.topics.map(t=>`<span class="tag" style="margin:0 6px 0 0">${esc(t)}</span>`).join('')}</div>`:''}
+  <h2>Lenguajes</h2>
+  ${tot?`<div class="langs">${lk.map(([k,v])=>`<div title="${esc(k)}" style="width:${v/tot*100}%;background:hsl(${hue(k)} 60% 50%)"></div>`).join('')}</div>
+  <div class="legend">${lk.map(([k,v])=>`<span><i class="dot" style="background:hsl(${hue(k)} 60% 50%)"></i>${esc(k)} ${(v/tot*100).toFixed(1)}%</span>`).join('')}</div>`:'<p class="sub">Sin datos de lenguajes.</p>'}
+  <h2>Commits por mes <small style="color:var(--mute);font-weight:400">(últimos ${C.length} commits)</small></h2>
+  ${mk.length?`<div class="chart">${mk.map(k=>`<div class="col" title="${k}: ${months[k]}">${months[k]}<i style="height:${months[k]/mx*80}%"></i>${k.slice(2)}</div>`).join('')}</div>`:'<p class="sub">Sin commits disponibles.</p>'}
+  <h2>Últimos commits</h2>
+  ${C.slice(0,10).map(c=>`<div class="commit"><a href="${esc(c.html_url)}" target="_blank" rel="noopener">${esc(c.commit.message.split('\n')[0])}</a><br><small>${esc(c.commit.author?.name)} · ${fmt(c.commit.author?.date)} · ${c.sha.slice(0,7)}</small></div>`).join('')||'<p class="sub">Sin commits.</p>'}
+  <h2>Contribuidores</h2>
+  <div class="people">${P.map(p=>`<a href="${esc(p.html_url)}" target="_blank" rel="noopener"><img src="${esc(p.avatar_url)}" alt="">${esc(p.login)} (${p.contributions})</a>`).join('')||'<span class="sub">Sin datos.</span>'}</div>
+  <h2>Última release</h2>
+  ${R&&R.tag_name?`<p><a href="${esc(R.html_url)}" target="_blank" rel="noopener">${esc(R.name||R.tag_name)}</a> · ${fmt(R.published_at)}</p>`:'<p class="sub">Este repositorio no tiene releases.</p>'}`;
+  $('#md').onclick=downloadMd;
+  window.scrollTo(0,0);
+}
+
+function downloadMd(){
+  const {r,L,C,P,R}=cur,tot=Object.values(L).reduce((a,b)=>a+b,0);
+  const md=[`# ${r.full_name}`,'',r.description||'_Sin descripción_','',
+  `- Enlace: ${r.html_url}`,r.homepage?`- Web: ${r.homepage}`:'',
+  `- Estrellas: ${r.stargazers_count} · Forks: ${r.forks_count} · Issues abiertas: ${r.open_issues_count}`,
+  `- Licencia: ${r.license?.spdx_id||'Ninguna'} · Rama principal: ${r.default_branch}`,
+  `- Creado: ${fmt(r.created_at)} · Último push: ${fmt(r.pushed_at)}`,
+  (r.topics||[]).length?`- Temas: ${r.topics.join(', ')}`:'','',
+  '## Lenguajes',...Object.entries(L).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`- ${k}: ${(v/tot*100).toFixed(1)}%`),'',
+  '## Últimos commits',...C.slice(0,10).map(c=>`- ${fmt(c.commit.author?.date)} · ${c.commit.message.split('\n')[0]} (${c.sha.slice(0,7)}, ${c.commit.author?.name})`),'',
+  '## Contribuidores',...P.map(p=>`- ${p.login} (${p.contributions})`),'',
+  '## Última release',R&&R.tag_name?`- ${R.name||R.tag_name} · ${fmt(R.published_at)}`:'- Sin releases'].filter(x=>x!==undefined).join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([md],{type:'text/markdown'}));
+  a.download=r.name+'-ficha.md';a.click();URL.revokeObjectURL(a.href);
+}
+</script>
+</body>
+</html>
